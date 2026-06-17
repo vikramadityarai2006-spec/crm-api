@@ -1,15 +1,24 @@
 const { prisma, cors, requireAuth, toDate } = require("./_lib");
 
 const build = (b) => ({
-  clientName:b.clientName||b.client||null, designation:b.designation||null,
-  location:b.location||null, candidateName:b.candidateName||b.name||"",
-  actualDOJ:toDate(b.actualDOJ), offerMonth:toDate(b.offerMonth),
-  phone:b.phone?String(b.phone):null, resignationAcceptance:b.resignationAcceptance||null,
-  proposedDOJ:toDate(b.proposedDOJ), ownerName:b.ownerName||b.owner||null,
-  joiningStatus:b.joiningStatus||null,
-  ctcPerMonth:(b.ctcPerMonth||b.ctc)?parseFloat(b.ctcPerMonth||b.ctc):null,
-  statusCode:b.statusCode||null, notes:b.notes||null,
+  clientName: b.clientName||b.client||null,
+  designation: b.designation||null,
+  location: b.location||null,
+  candidateName: b.candidateName||b.name||"",
+  actualDOJ: toDate(b.actualDOJ),
+  offerMonth: toDate(b.offerMonth),
+  phone: b.phone?String(b.phone):null,
+  resignationAcceptance: b.resignationAcceptance||null,
+  proposedDOJ: toDate(b.proposedDOJ),
+  ownerName: b.ownerName||b.owner||null,
+  joiningStatus: b.joiningStatus||null,
+  ctcPerMonth: (b.ctcPerMonth||b.ctc)?parseFloat(b.ctcPerMonth||b.ctc):null,
+  statusCode: b.statusCode||null,
+  notes: b.notes||null,
 });
+
+// Parse comma-separated multi values
+const multi = (v) => v ? v.split(",").map(x=>x.trim()).filter(Boolean) : [];
 
 module.exports = async (req, res) => {
   cors(res);
@@ -51,10 +60,18 @@ module.exports = async (req, res) => {
       }
     }
 
-    // List
+    // LIST with full filter support
     if (req.method === "GET") {
-      const { search,client,owner,status,statusCode,location,page=1,limit=20 } = req.query;
+      const {
+        search, client, owner, status, statusCode, location,
+        designation, resignation,
+        offerFrom, offerTo, proposedFrom, proposedTo, actualFrom, actualTo,
+        page=1, limit=20, sortDir="asc"
+      } = req.query;
+
       const where = { deleted:false };
+
+      // Search
       if (search) where.OR = [
         {candidateName:{contains:search,mode:"insensitive"}},
         {clientName:{contains:search,mode:"insensitive"}},
@@ -62,17 +79,56 @@ module.exports = async (req, res) => {
         {phone:{contains:search,mode:"insensitive"}},
         {ownerName:{contains:search,mode:"insensitive"}},
       ];
-      if (client) where.clientName={contains:client,mode:"insensitive"};
-      if (owner) where.ownerName={contains:owner,mode:"insensitive"};
-      if (status) where.joiningStatus={contains:status,mode:"insensitive"};
-      if (statusCode) where.statusCode=statusCode;
-      if (location) where.location={contains:location,mode:"insensitive"};
-      const skip=(parseInt(page)-1)*parseInt(limit);
-      const [total,candidates] = await Promise.all([
+
+      // Multi-select filters (comma separated)
+      const clients = multi(client);
+      const owners = multi(owner);
+      const statuses = multi(status);
+      const codes = multi(statusCode);
+      const resignations = multi(resignation);
+
+      if (clients.length === 1) where.clientName = {contains:clients[0],mode:"insensitive"};
+      else if (clients.length > 1) where.clientName = {in:clients};
+
+      if (owners.length === 1) where.ownerName = {contains:owners[0],mode:"insensitive"};
+      else if (owners.length > 1) where.ownerName = {in:owners};
+
+      if (statuses.length === 1) where.joiningStatus = {contains:statuses[0],mode:"insensitive"};
+      else if (statuses.length > 1) where.joiningStatus = {in:statuses};
+
+      if (codes.length === 1) where.statusCode = codes[0];
+      else if (codes.length > 1) where.statusCode = {in:codes};
+
+      if (resignations.length === 1) where.resignationAcceptance = {contains:resignations[0],mode:"insensitive"};
+      else if (resignations.length > 1) where.resignationAcceptance = {in:resignations};
+
+      if (location) where.location = {contains:location,mode:"insensitive"};
+      if (designation) where.designation = {contains:designation,mode:"insensitive"};
+
+      // Date range filters
+      if (offerFrom || offerTo) {
+        where.offerMonth = {};
+        if (offerFrom) where.offerMonth.gte = new Date(offerFrom);
+        if (offerTo) where.offerMonth.lte = new Date(offerTo);
+      }
+      if (proposedFrom || proposedTo) {
+        where.proposedDOJ = {};
+        if (proposedFrom) where.proposedDOJ.gte = new Date(proposedFrom);
+        if (proposedTo) where.proposedDOJ.lte = new Date(proposedTo);
+      }
+      if (actualFrom || actualTo) {
+        where.actualDOJ = {};
+        if (actualFrom) where.actualDOJ.gte = new Date(actualFrom);
+        if (actualTo) where.actualDOJ.lte = new Date(actualTo);
+      }
+
+      const skip = (parseInt(page)-1)*parseInt(limit);
+      // Sort by ID ascending = oldest first (by date added)
+      const [total, candidates] = await Promise.all([
         prisma.candidate.count({where}),
-        prisma.candidate.findMany({where,orderBy:{id:"desc"},skip,take:parseInt(limit)}),
+        prisma.candidate.findMany({where, orderBy:{id:"asc"}, skip, take:parseInt(limit)}),
       ]);
-      return res.json({candidates,total,page:parseInt(page),pages:Math.ceil(total/parseInt(limit))});
+      return res.json({candidates, total, page:parseInt(page), pages:Math.ceil(total/parseInt(limit))});
     }
 
     // Create
