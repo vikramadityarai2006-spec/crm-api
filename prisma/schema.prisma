@@ -1,0 +1,107 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        Int        @id @default(autoincrement())
+  name      String
+  email     String     @unique
+  password  String
+  role      String     @default("viewer")
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  candidates Candidate[] @relation("CreatedBy")
+  auditLogs  AuditLog[]
+}
+
+model Candidate {
+  id                    Int        @id @default(autoincrement())
+  clientName            String?
+  designation           String?
+  location              String?
+  candidateName         String
+  actualDOJ             DateTime?
+  offerMonth            DateTime?
+  phone                 String?
+  resignationAcceptance String?
+  proposedDOJ           DateTime?
+  ownerName             String?
+  joiningStatus         String?
+  ctcPerMonth           Float?
+  statusCode            String?
+  notes                 String?
+  deleted               Boolean    @default(false)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  createdById           Int?
+  createdBy             User?      @relation("CreatedBy", fields: [createdById], references: [id])
+  auditLogs             AuditLog[]
+
+  @@index([deleted])
+  @@index([clientName])
+  @@index([ownerName])
+  @@index([joiningStatus])
+  @@index([statusCode])
+  @@index([candidateName])
+  @@index([deleted, id])
+}
+
+model MasterData {
+  id        Int     @id @default(autoincrement())
+  category  String
+  value     String
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+  @@unique([category, value])
+  @@index([category, active])
+}
+
+model StatusCode {
+  id     Int     @id @default(autoincrement())
+  code   String  @unique
+  label  String
+  color  String
+  active Boolean @default(true)
+}
+
+model AuditLog {
+  id          Int        @id @default(autoincrement())
+  action      String
+  recordName  String?
+  detail      String?
+  userId      Int?
+  user        User?      @relation(fields: [userId], references: [id])
+  candidateId Int?
+  candidate   Candidate? @relation(fields: [candidateId], references: [id])
+  createdAt   DateTime   @default(now())
+
+  @@index([createdAt])
+}
+
+model Company {
+  id           Int      @id @default(autoincrement())
+  companyName  String
+  spoc         String?
+  contactName  String?
+  department   String?
+  mobile       String?
+  email        String?
+  address      String?
+  dsc          String   @default("NO")
+  hardcopy     String   @default("NO")
+  serviceFee   String?
+  agreementUrl String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([companyName])
+}
