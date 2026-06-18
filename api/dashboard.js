@@ -21,8 +21,8 @@ module.exports = async (req, res) => {
       prisma.candidate.count({where:{...base,resignationAcceptance:{in:["Pending","pending"]}}}),
       prisma.candidate.count({where:{...base,actualDOJ:{gte:sm,lte:em}}}),
       prisma.candidate.count({where:{...base,proposedDOJ:{gte:sn,lte:en}}}),
-      prisma.candidate.groupBy({by:["joiningStatus"],where:base,_count:true}),
-      prisma.candidate.groupBy({by:["clientName"],where:base,_count:true,orderBy:{_count:{clientName:"desc"}},take:10}),
+      prisma.candidate.groupBy({by:["joiningStatus"],where:base,_count:{_all:true}}),
+      prisma.candidate.groupBy({by:["clientName"],where:base,_count:{_all:true},orderBy:{_count:{clientName:"desc"}},take:10}),
     ]);
 
     const months = await Promise.all(Array.from({length:6},(_,i)=>{
