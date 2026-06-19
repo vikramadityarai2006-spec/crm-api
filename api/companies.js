@@ -396,6 +396,12 @@ const autoSeed = async () => {
   } catch(e) {}
 };
 
+const toDate = (v) => {
+  if (!v || v === "") return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 const sanitize = (b) => ({
   companyName: b.companyName || "",
   spoc: b.spoc || null,
@@ -408,6 +414,8 @@ const sanitize = (b) => ({
   hardcopy: b.hardcopy || "NO",
   serviceFee: b.serviceFee || null,
   agreementUrl: b.agreementUrl || null,
+  agreementStartDate: toDate(b.agreementStartDate),
+  agreementEndDate: toDate(b.agreementEndDate),
 });
 
 module.exports = async (req, res) => {

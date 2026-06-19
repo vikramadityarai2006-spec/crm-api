@@ -54,6 +54,8 @@ const ensureCompanyTable = async () => {
         "hardcopy" TEXT NOT NULL DEFAULT 'NO',
         "serviceFee" TEXT,
         "agreementUrl" TEXT,
+        "agreementStartDate" TIMESTAMP(3),
+        "agreementEndDate" TIMESTAMP(3),
         "active" BOOLEAN NOT NULL DEFAULT true,
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -62,6 +64,10 @@ const ensureCompanyTable = async () => {
     await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "Company_companyName_idx" ON "Company"("companyName")
     `);
+    // Safety net: add columns if table already existed without them (older deployments)
+    await prisma.$executeRawUnsafe(`ALTER TABLE "Company" ADD COLUMN IF NOT EXISTS "agreementStartDate" TIMESTAMP(3)`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "Company" ADD COLUMN IF NOT EXISTS "agreementEndDate" TIMESTAMP(3)`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Company_agreementEndDate_idx" ON "Company"("agreementEndDate")`);
   } catch(e) {
     // Table already exists, ignore
   }
