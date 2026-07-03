@@ -31,6 +31,7 @@ model Candidate {
   actualDOJ             DateTime?
   offerMonth            DateTime?
   phone                 String?
+  email                 String?
   resignationAcceptance String?
   proposedDOJ           DateTime?
   ownerName             String?

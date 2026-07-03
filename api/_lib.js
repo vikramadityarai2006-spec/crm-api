@@ -76,7 +76,17 @@ const ensureCompanyTable = async () => {
   }
 };
 
+// Safety net: add Candidate.email column for older deployments that predate it
+const ensureCandidateEmailColumn = async () => {
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "Candidate" ADD COLUMN IF NOT EXISTS "email" TEXT`);
+  } catch (e) {
+    // Column already exists, ignore
+  }
+};
+
 // Run on first load
 ensureCompanyTable();
+ensureCandidateEmailColumn();
 
 module.exports = { prisma, SECRET, cors, getUser, requireAuth, toDate };

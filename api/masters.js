@@ -32,7 +32,41 @@ module.exports = async (req, res) => {
         return res.json(item);
       }
       if (req.method === "DELETE") {
+        const existing = await prisma.masterData.findUnique({ where:{id} });
         await prisma.masterData.update({ where:{id}, data:{active:false} });
+
+        // If an employee/owner is removed from the master list, reassign their
+        // candidates to "Ex-AmpleLeap" instead of leaving the field pointing at
+        // a name that no longer exists in the master list.
+        if (existing && existing.category === "owners") {
+          const EX_VALUE = "Ex-AmpleLeap";
+
+          // Make sure "Ex-AmpleLeap" exists as a selectable owner going forward
+          await prisma.masterData.upsert({
+            where: { category_value: { category:"owners", value:EX_VALUE } },
+            update: { active:true },
+            create: { category:"owners", value:EX_VALUE },
+          });
+
+          const affected = await prisma.candidate.updateMany({
+            where: { ownerName: existing.value, deleted:false },
+            data: { ownerName: EX_VALUE },
+          });
+
+          if (affected.count > 0) {
+            await prisma.auditLog.create({
+              data: {
+                action: "Owner Reassigned",
+                recordName: existing.value,
+                detail: `${affected.count} candidate(s) reassigned from "${existing.value}" to "${EX_VALUE}" after employee removal`,
+                userId: user.id,
+              },
+            });
+          }
+
+          return res.json({ message:"Deactivated", reassigned: affected.count, reassignedTo: EX_VALUE });
+        }
+
         return res.json({ message:"Deactivated" });
       }
     }

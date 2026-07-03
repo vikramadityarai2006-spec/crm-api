@@ -8,6 +8,7 @@ const build = (b) => ({
   actualDOJ: toDate(b.actualDOJ),
   offerMonth: toDate(b.offerMonth),
   phone: b.phone?String(b.phone):null,
+  email: b.email||null,
   resignationAcceptance: b.resignationAcceptance||null,
   proposedDOJ: toDate(b.proposedDOJ),
   ownerName: b.ownerName||b.owner||null,
@@ -66,7 +67,7 @@ module.exports = async (req, res) => {
         search, client, owner, status, statusCode, location,
         designation, resignation,
         offerFrom, offerTo, proposedFrom, proposedTo, actualFrom, actualTo,
-        page=1, limit=20, sortDir="asc"
+        page=1, limit=25, sortDir="desc"
       } = req.query;
 
       const where = { deleted:false };
@@ -77,6 +78,7 @@ module.exports = async (req, res) => {
         {clientName:{contains:search,mode:"insensitive"}},
         {designation:{contains:search,mode:"insensitive"}},
         {phone:{contains:search,mode:"insensitive"}},
+        {email:{contains:search,mode:"insensitive"}},
         {ownerName:{contains:search,mode:"insensitive"}},
       ];
 
@@ -123,8 +125,8 @@ module.exports = async (req, res) => {
       }
 
       const skip = (parseInt(page)-1)*parseInt(limit);
-      // Sort by ID — asc (default) = oldest first, desc = newest first
-      const dir = sortDir === "desc" ? "desc" : "asc";
+      // Sort by ID — desc (default) = newest first, asc = oldest first
+      const dir = sortDir === "asc" ? "asc" : "desc";
       const [total, candidates] = await Promise.all([
         prisma.candidate.count({where}),
         prisma.candidate.findMany({where, orderBy:{id:dir}, skip, take:parseInt(limit)}),
