@@ -123,10 +123,11 @@ module.exports = async (req, res) => {
       }
 
       const skip = (parseInt(page)-1)*parseInt(limit);
-      // Sort by ID ascending = oldest first (by date added)
+      // Sort by ID — asc (default) = oldest first, desc = newest first
+      const dir = sortDir === "desc" ? "desc" : "asc";
       const [total, candidates] = await Promise.all([
         prisma.candidate.count({where}),
-        prisma.candidate.findMany({where, orderBy:{id:"asc"}, skip, take:parseInt(limit)}),
+        prisma.candidate.findMany({where, orderBy:{id:dir}, skip, take:parseInt(limit)}),
       ]);
       return res.json({candidates, total, page:parseInt(page), pages:Math.ceil(total/parseInt(limit))});
     }

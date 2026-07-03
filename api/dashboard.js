@@ -16,15 +16,15 @@ module.exports = async (req, res) => {
 
     const [total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,backout,hold] = await Promise.all([
       prisma.candidate.count({where:base}),
-      prisma.candidate.count({where:{...base,joiningStatus:{in:["Joined","joined"]}}}),
-      prisma.candidate.count({where:{...base,joiningStatus:{in:["Offered","offered"]}}}),
-      prisma.candidate.count({where:{...base,resignationAcceptance:{in:["Pending","pending"]}}}),
+      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Joined",mode:"insensitive"}}}),
+      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Offered",mode:"insensitive"}}}),
+      prisma.candidate.count({where:{...base,resignationAcceptance:{equals:"Pending",mode:"insensitive"}}}),
       prisma.candidate.count({where:{...base,actualDOJ:{gte:sm,lte:em}}}),
       prisma.candidate.count({where:{...base,proposedDOJ:{gte:sn,lte:en}}}),
       prisma.candidate.groupBy({by:["joiningStatus"],where:base,_count:{_all:true}}),
       prisma.candidate.groupBy({by:["clientName"],where:base,_count:{_all:true},orderBy:{_count:{clientName:"desc"}},take:10}),
-      prisma.candidate.count({where:{...base,joiningStatus:{in:["Backout","backout"]}}}),
-      prisma.candidate.count({where:{...base,joiningStatus:{in:["Hold","hold"]}}}),
+      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Backout",mode:"insensitive"}}}),
+      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Hold",mode:"insensitive"}}}),
     ]);
 
     // Conversion funnel: Total candidates -> Offered -> Joined

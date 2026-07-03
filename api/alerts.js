@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
       prisma.candidate.findMany({
         where: {
           deleted: false,
-          resignationAcceptance: { in: ["Pending", "pending"] },
+          resignationAcceptance: { equals: "Pending", mode: "insensitive" },
         },
         select: { id: true, candidateName: true, clientName: true, phone: true, ownerName: true, proposedDOJ: true },
         orderBy: { id: "desc" },

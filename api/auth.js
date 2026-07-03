@@ -4,7 +4,10 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = global.prisma || new PrismaClient();
 if (!global.prisma) global.prisma = prisma;
-const SECRET = process.env.JWT_SECRET || "ampleleap-crm-super-secret-key-2024";
+const SECRET = process.env.JWT_SECRET;
+if (!SECRET) {
+  throw new Error("JWT_SECRET environment variable is not set. Refusing to start with an insecure default.");
+}
 // Session duration in seconds — default 8 hours (working day)
 const SESSION_HOURS = parseInt(process.env.SESSION_HOURS || "8");
 

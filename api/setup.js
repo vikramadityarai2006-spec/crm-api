@@ -1,4 +1,4 @@
-const { prisma, cors } = require("./_lib");
+const { prisma, cors, requireAuth } = require("./_lib");
 
 const COMPANIES = [
   {companyName:"Alicon",spoc:"Yogita",contactName:"dhananjay kulkarni",department:"HR",mobile:"7028994509",email:"dhananjay.kulkarni@alicongroup.co.in",address:"Gat No: 1426, Village Shikrapur, Tal. Shirur, Dist. Pune 412 208 Maharashtra",dsc:"NO",hardcopy:"NO"},
@@ -34,6 +34,11 @@ const COMPANIES = [
 module.exports = async (req, res) => {
   cors(res);
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // Only an authenticated admin should be able to trigger seeding
+  const user = requireAuth(req, res);
+  if (!user) return;
+  if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
 
   try {
     // Check if Company table exists and seed if empty
