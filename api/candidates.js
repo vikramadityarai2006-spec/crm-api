@@ -8,7 +8,6 @@ const build = (b) => ({
   actualDOJ: toDate(b.actualDOJ),
   offerMonth: toDate(b.offerMonth),
   phone: b.phone?String(b.phone):null,
-  email: b.email||null,
   resignationAcceptance: b.resignationAcceptance||null,
   proposedDOJ: toDate(b.proposedDOJ),
   ownerName: b.ownerName||b.owner||null,
@@ -20,6 +19,12 @@ const build = (b) => ({
 
 // Parse comma-separated multi values
 const multi = (v) => v ? v.split(",").map(x=>x.trim()).filter(Boolean) : [];
+
+// A recruiter may only see/manage candidates whose Owner field matches their
+// own account name. Admins (and viewers, who are read-only anyway) are unrestricted.
+const isOwnRecord = (candidate, user) =>
+  user.role !== "recruiter" ||
+  (candidate.ownerName || "").trim().toLowerCase() === (user.name || "").trim().toLowerCase();
 
 module.exports = async (req, res) => {
   cors(res);
@@ -45,11 +50,17 @@ module.exports = async (req, res) => {
       if (req.method === "GET") {
         const c = await prisma.candidate.findUnique({ where:{id} });
         if (!c||c.deleted) return res.status(404).json({ error:"Not found" });
+        if (!isOwnRecord(c, user)) return res.status(403).json({ error:"You can only view your own candidates" });
         return res.json(c);
       }
       if (req.method === "PUT") {
         if (!["admin","recruiter"].includes(user.role)) return res.status(403).json({ error:"Not allowed" });
-        const c = await prisma.candidate.update({ where:{id}, data:build(req.body) });
+        const existing = await prisma.candidate.findUnique({ where:{id} });
+        if (!existing || existing.deleted) return res.status(404).json({ error:"Not found" });
+        if (!isOwnRecord(existing, user)) return res.status(403).json({ error:"You can only update your own candidates" });
+        const data = build(req.body);
+        if (user.role === "recruiter") data.ownerName = user.name; // recruiters can't reassign ownership away from themselves
+        const c = await prisma.candidate.update({ where:{id}, data });
         await prisma.auditLog.create({ data:{action:"Updated",recordName:c.candidateName,detail:`Status: ${c.joiningStatus}`,userId:user.id,candidateId:id} });
         return res.json(c);
       }
@@ -67,7 +78,7 @@ module.exports = async (req, res) => {
         search, client, owner, status, statusCode, location,
         designation, resignation,
         offerFrom, offerTo, proposedFrom, proposedTo, actualFrom, actualTo,
-        page=1, limit=25, sortDir="desc"
+        page=1, limit=20, sortDir="asc"
       } = req.query;
 
       const where = { deleted:false };
@@ -78,7 +89,6 @@ module.exports = async (req, res) => {
         {clientName:{contains:search,mode:"insensitive"}},
         {designation:{contains:search,mode:"insensitive"}},
         {phone:{contains:search,mode:"insensitive"}},
-        {email:{contains:search,mode:"insensitive"}},
         {ownerName:{contains:search,mode:"insensitive"}},
       ];
 
@@ -124,9 +134,15 @@ module.exports = async (req, res) => {
         if (actualTo) where.actualDOJ.lte = new Date(actualTo);
       }
 
+      // Recruiters only ever see their own candidates — this always wins,
+      // regardless of any owner filter the client tried to send.
+      if (user.role === "recruiter") {
+        where.ownerName = { equals: user.name, mode: "insensitive" };
+      }
+
       const skip = (parseInt(page)-1)*parseInt(limit);
-      // Sort by ID — desc (default) = newest first, asc = oldest first
-      const dir = sortDir === "asc" ? "asc" : "desc";
+      // Sort by ID — asc (default) = oldest first, desc = newest first
+      const dir = sortDir === "desc" ? "desc" : "asc";
       const [total, candidates] = await Promise.all([
         prisma.candidate.count({where}),
         prisma.candidate.findMany({where, orderBy:{id:dir}, skip, take:parseInt(limit)}),
@@ -137,7 +153,9 @@ module.exports = async (req, res) => {
     // Create
     if (req.method === "POST") {
       if (!["admin","recruiter"].includes(user.role)) return res.status(403).json({ error:"Not allowed" });
-      const c = await prisma.candidate.create({ data:{...build(req.body),createdById:user.id} });
+      const data = build(req.body);
+      if (user.role === "recruiter") data.ownerName = user.name; // new candidates always belong to whoever created them
+      const c = await prisma.candidate.create({ data:{...data,createdById:user.id} });
       await prisma.auditLog.create({ data:{action:"Created",recordName:c.candidateName,detail:`Client: ${c.clientName}`,userId:user.id,candidateId:c.id} });
       return res.status(201).json(c);
     }

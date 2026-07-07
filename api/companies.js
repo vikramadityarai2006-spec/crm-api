@@ -427,6 +427,9 @@ module.exports = async (req, res) => {
 
   const user = auth(req);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
+  // Recruiters no longer have a Companies page in the UI — enforce that
+  // server-side too, so it can't be reached by calling the API directly.
+  if (user.role === "recruiter") return res.status(403).json({ error: "Not allowed" });
 
   const id = req.query.id ? parseInt(req.query.id) : null;
 

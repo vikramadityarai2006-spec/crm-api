@@ -13,6 +13,9 @@ module.exports = async (req, res) => {
     const sn = new Date(now.getFullYear(),now.getMonth()+1,1);
     const en = new Date(now.getFullYear(),now.getMonth()+2,0);
     const base = {deleted:false};
+    // Recruiters get a personal view scoped to candidates they own — every
+    // query below uses `base`, so this one line scopes the whole dashboard.
+    if (user.role === "recruiter") base.ownerName = { equals: user.name, mode: "insensitive" };
 
     const [total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,backout,hold] = await Promise.all([
       prisma.candidate.count({where:base}),

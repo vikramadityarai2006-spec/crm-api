@@ -11,9 +11,16 @@ module.exports = async (req, res) => {
     const in7 = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+    // Recruiters only get alerts for candidates they own. Agreement renewals
+    // are a Companies-page concern; since recruiters no longer have access
+    // to that page, skip fetching those alerts for them entirely.
+    const ownerScope = user.role === "recruiter"
+      ? { ownerName: { equals: user.name, mode: "insensitive" } }
+      : {};
+
     const [expiringAgreements, upcomingDOJ, pendingResignations] = await Promise.all([
       // Agreements expiring within 30 days (or already expired, not yet renewed)
-      prisma.company.findMany({
+      user.role === "recruiter" ? Promise.resolve([]) : prisma.company.findMany({
         where: {
           active: true,
           agreementEndDate: { not: null, lte: in30 },
@@ -27,6 +34,7 @@ module.exports = async (req, res) => {
           deleted: false,
           proposedDOJ: { not: null, gte: now, lte: in7 },
           actualDOJ: null,
+          ...ownerScope,
         },
         select: { id: true, candidateName: true, clientName: true, phone: true, proposedDOJ: true, ownerName: true, joiningStatus: true },
         orderBy: { proposedDOJ: "asc" },
@@ -37,6 +45,7 @@ module.exports = async (req, res) => {
         where: {
           deleted: false,
           resignationAcceptance: { equals: "Pending", mode: "insensitive" },
+          ...ownerScope,
         },
         select: { id: true, candidateName: true, clientName: true, phone: true, ownerName: true, proposedDOJ: true },
         orderBy: { id: "desc" },
