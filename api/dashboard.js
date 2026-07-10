@@ -42,6 +42,33 @@ module.exports = async (req, res) => {
       prisma.candidate.count({ where: { ...base, createdAt: { gte: d12 } } }),
     ]);
 
+    // Per-company status breakdown (Pipeline / Red / Backout / Joined / Offered),
+    // synced live from the same candidate data as everything else on the
+    // dashboard. Grouped by client + joiningStatus, then pivoted below.
+    const clientStatusRaw = await prisma.candidate.groupBy({
+      by: ["clientName", "joiningStatus"],
+      where: { ...base, clientName: { not: null } },
+      _count: { _all: true },
+    });
+    const clientStatusMap = {};
+    for (const g of clientStatusRaw) {
+      const name = g.clientName;
+      if (!clientStatusMap[name]) {
+        clientStatusMap[name] = { clientName: name, total: 0, joined: 0, offered: 0, backout: 0, red: 0 };
+      }
+      const count = g._count._all;
+      clientStatusMap[name].total += count;
+      const st = (g.joiningStatus || "").trim().toLowerCase();
+      if (st === "joined") clientStatusMap[name].joined += count;
+      else if (st === "offered") clientStatusMap[name].offered += count;
+      else if (st === "backout") clientStatusMap[name].backout += count;
+      else if (st === "red") clientStatusMap[name].red += count;
+    }
+    const clientStatusBreakdown = Object.values(clientStatusMap)
+      .map(c => ({ ...c, pipeline: c.total - c.joined - c.offered - c.backout - c.red }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+
     // Conversion funnel: Total candidates -> Offered -> Joined
     const funnel = {
       total,
@@ -61,6 +88,7 @@ module.exports = async (req, res) => {
 
     res.json({total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,months,funnel,
       candidatesByPeriod: { last3, last6, last12, total },
+      clientStatusBreakdown,
     });
   } catch(err) { res.status(500).json({error:err.message}); }
 };
