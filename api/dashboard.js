@@ -17,6 +17,11 @@ module.exports = async (req, res) => {
     // query below uses `base`, so this one line scopes the whole dashboard.
     if (user.role === "recruiter") base.ownerName = { equals: user.name, mode: "insensitive" };
 
+    // Trailing-window boundaries for the Total Candidates 3M/6M/12M/All card
+    const d3 = new Date(now);  d3.setMonth(d3.getMonth() - 3);
+    const d6 = new Date(now);  d6.setMonth(d6.getMonth() - 6);
+    const d12 = new Date(now); d12.setMonth(d12.getMonth() - 12);
+
     const [total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,backout,hold] = await Promise.all([
       prisma.candidate.count({where:base}),
       prisma.candidate.count({where:{...base,joiningStatus:{equals:"Joined",mode:"insensitive"}}}),
@@ -28,6 +33,13 @@ module.exports = async (req, res) => {
       prisma.candidate.groupBy({by:["clientName"],where:base,_count:{_all:true},orderBy:{_count:{clientName:"desc"}},take:10}),
       prisma.candidate.count({where:{...base,joiningStatus:{equals:"Backout",mode:"insensitive"}}}),
       prisma.candidate.count({where:{...base,joiningStatus:{equals:"Hold",mode:"insensitive"}}}),
+    ]);
+
+    // Total Candidates breakdown for the Dashboard KPI card
+    const [last3, last6, last12] = await Promise.all([
+      prisma.candidate.count({ where: { ...base, createdAt: { gte: d3 } } }),
+      prisma.candidate.count({ where: { ...base, createdAt: { gte: d6 } } }),
+      prisma.candidate.count({ where: { ...base, createdAt: { gte: d12 } } }),
     ]);
 
     // Conversion funnel: Total candidates -> Offered -> Joined
@@ -47,6 +59,8 @@ module.exports = async (req, res) => {
       return prisma.candidate.count({where:{...base,actualDOJ:{gte:s,lte:e}}}).then(v=>({label:s.toLocaleString("en-IN",{month:"short",year:"2-digit"}),value:v}));
     }));
 
-    res.json({total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,months,funnel});
+    res.json({total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,months,funnel,
+      candidatesByPeriod: { last3, last6, last12, total },
+    });
   } catch(err) { res.status(500).json({error:err.message}); }
 };
