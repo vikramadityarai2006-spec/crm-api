@@ -54,10 +54,43 @@ module.exports = async (req, res) => {
       prisma.candidate.count({ where: { ...base, resignationAcceptance: { equals: "Pending", mode: "insensitive" } } }),
     ]);
 
+    // Breakdowns for candidates added within the selected period (same
+    // window as the trend charts above) — these mirror the same fields
+    // used as filters/columns on the Candidates page, scoped to this report's range.
+    const periodStart = buckets[0].start;
+    const periodWhere = { ...base, createdAt: { gte: periodStart, lte: now } };
+
+    const [statusRaw, resignationRaw, clientRaw] = await Promise.all([
+      prisma.candidate.groupBy({ by: ["joiningStatus"], where: periodWhere, _count: { _all: true } }),
+      prisma.candidate.groupBy({ by: ["resignationAcceptance"], where: periodWhere, _count: { _all: true } }),
+      prisma.candidate.groupBy({
+        by: ["clientName"],
+        where: { ...periodWhere, clientName: { not: null } },
+        _count: { _all: true },
+        orderBy: { _count: { clientName: "desc" } },
+        take: 10,
+      }),
+    ]);
+
+    const statusBreakdown = statusRaw
+      .filter(x => x.joiningStatus)
+      .map(x => ({ label: x.joiningStatus, value: x._count._all }))
+      .sort((a, b) => b.value - a.value);
+
+    const resignationBreakdown = resignationRaw
+      .filter(x => x.resignationAcceptance)
+      .map(x => ({ label: x.resignationAcceptance, value: x._count._all }))
+      .sort((a, b) => b.value - a.value);
+
+    const clientBreakdown = clientRaw.map(x => ({ label: x.clientName, value: x._count._all }));
+
     res.json({
       months,
       monthly,
       snapshot: { total, backout, hold, resPending },
+      statusBreakdown,
+      resignationBreakdown,
+      clientBreakdown,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
