@@ -17,10 +17,14 @@ module.exports = async (req, res) => {
     // query below uses `base`, so this one line scopes the whole dashboard.
     if (user.role === "recruiter") base.ownerName = { equals: user.name, mode: "insensitive" };
 
-    // Trailing-window boundaries for the Total Candidates 3M/6M/12M/All card
-    const d3 = new Date(now);  d3.setMonth(d3.getMonth() - 3);
-    const d6 = new Date(now);  d6.setMonth(d6.getMonth() - 6);
-    const d12 = new Date(now); d12.setMonth(d12.getMonth() - 12);
+    // Optional date-range filter (From–To). When provided, the WHOLE dashboard
+    // reflects only candidates ADDED (createdAt) within the selected window.
+    // Empty from/to = all-time (unchanged behaviour).
+    const { from, to } = req.query;
+    const dateFilter = {};
+    if (from) { const f = new Date(from); if (!isNaN(f)) dateFilter.gte = f; }
+    if (to)   { const t = new Date(to);   if (!isNaN(t)) { t.setHours(23,59,59,999); dateFilter.lte = t; } }
+    if (Object.keys(dateFilter).length) base.createdAt = dateFilter;
 
     const [total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,backout,hold] = await Promise.all([
       prisma.candidate.count({where:base}),
@@ -35,12 +39,9 @@ module.exports = async (req, res) => {
       prisma.candidate.count({where:{...base,joiningStatus:{equals:"Hold",mode:"insensitive"}}}),
     ]);
 
-    // Total Candidates breakdown for the Dashboard KPI card
-    const [last3, last6, last12] = await Promise.all([
-      prisma.candidate.count({ where: { ...base, createdAt: { gte: d3 } } }),
-      prisma.candidate.count({ where: { ...base, createdAt: { gte: d6 } } }),
-      prisma.candidate.count({ where: { ...base, createdAt: { gte: d12 } } }),
-    ]);
+    // The candidate-database card now shows the in-range total (the old
+    // 3M/6M/12M presets were replaced by the From–To picker in the header).
+    const last3 = total, last6 = total, last12 = total;
 
     // Per-company status breakdown (Pipeline / Red / Backout / Joined / Offered),
     // synced live from the same candidate data as everything else on the

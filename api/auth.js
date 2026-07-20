@@ -41,6 +41,13 @@ module.exports = async (req, res) => {
         { expiresIn }
       );
 
+      // Audit trail — record the login. Never let a logging failure block sign-in.
+      try {
+        await prisma.auditLog.create({
+          data: { action: "Login", recordName: user.name, detail: `${user.email} (${user.role})`, userId: user.id }
+        });
+      } catch (e) { /* ignore audit failure */ }
+
       return res.json({
         token,
         expiresIn,

@@ -16,10 +16,12 @@ module.exports = async (req, res) => {
       if (req.method === "POST") {
         const { code, label, color } = req.body;
         const item = await prisma.statusCode.upsert({ where:{code}, update:{label,color}, create:{code,label,color} });
+        try { await prisma.auditLog.create({ data:{ action:"Status Code Saved", recordName:code, detail:label || null, userId:user.id } }); } catch(e){}
         return res.json(item);
       }
       if (req.method === "DELETE") {
         await prisma.statusCode.update({ where:{code:req.body.code}, data:{active:false} });
+        try { await prisma.auditLog.create({ data:{ action:"Status Code Deleted", recordName:req.body.code, userId:user.id } }); } catch(e){}
         return res.json({ message:"Deleted" });
       }
     }
@@ -29,11 +31,13 @@ module.exports = async (req, res) => {
       if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
       if (req.method === "PUT") {
         const item = await prisma.masterData.update({ where:{id}, data:{value:req.body.value} });
+        try { await prisma.auditLog.create({ data:{ action:"Master Updated", recordName:item.value, detail:`Category: ${item.category}`, userId:user.id } }); } catch(e){}
         return res.json(item);
       }
       if (req.method === "DELETE") {
         const existing = await prisma.masterData.findUnique({ where:{id} });
         await prisma.masterData.update({ where:{id}, data:{active:false} });
+        try { if (existing) await prisma.auditLog.create({ data:{ action:"Master Deleted", recordName:existing.value, detail:`Category: ${existing.category}`, userId:user.id } }); } catch(e){}
 
         // If an employee/owner is removed from the master list, reassign their
         // candidates to "Ex-AmpleLeap" instead of leaving the field pointing at
@@ -93,6 +97,7 @@ module.exports = async (req, res) => {
       const item = await prisma.masterData.upsert({
         where:{category_value:{category,value}}, update:{active:true}, create:{category,value}
       });
+      try { await prisma.auditLog.create({ data:{ action:"Master Added", recordName:item.value, detail:`Category: ${item.category}`, userId:user.id } }); } catch(e){}
       return res.json(item);
     }
 

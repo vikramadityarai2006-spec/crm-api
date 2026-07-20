@@ -444,11 +444,13 @@ module.exports = async (req, res) => {
       if (req.method === "PUT") {
         if (!["admin","recruiter"].includes(user.role)) return res.status(403).json({ error: "Not allowed" });
         const c = await prisma.company.update({ where: { id }, data: { ...sanitize(req.body), updatedAt: new Date() } });
+        try { await prisma.auditLog.create({ data: { action: "Company Updated", recordName: c.companyName, detail: c.contactName || null, userId: user.id } }); } catch (e) {}
         return res.json(c);
       }
       if (req.method === "DELETE") {
         if (user.role !== "admin") return res.status(403).json({ error: "Admin only" });
-        await prisma.company.update({ where: { id }, data: { active: false } });
+        const c = await prisma.company.update({ where: { id }, data: { active: false } });
+        try { await prisma.auditLog.create({ data: { action: "Company Deleted", recordName: c.companyName, detail: c.contactName || null, userId: user.id } }); } catch (e) {}
         return res.json({ message: "Deleted" });
       }
     }
@@ -479,6 +481,7 @@ module.exports = async (req, res) => {
       if (!["admin","recruiter"].includes(user.role)) return res.status(403).json({ error: "Not allowed" });
       if (!req.body.companyName) return res.status(400).json({ error: "Company name required" });
       const c = await prisma.company.create({ data: sanitize(req.body) });
+      try { await prisma.auditLog.create({ data: { action: "Company Added", recordName: c.companyName, detail: c.contactName || null, userId: user.id } }); } catch (e) {}
       return res.status(201).json(c);
     }
 

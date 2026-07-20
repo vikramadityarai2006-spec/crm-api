@@ -51,6 +51,10 @@ module.exports = async (req, res) => {
           where: { id }, data,
           select: { id:true, name:true, email:true, role:true, active:true }
         });
+        try {
+          const changes = Object.keys(data).map(k => k === "password" ? "password reset" : `${k}=${data[k]}`).join(", ");
+          await prisma.auditLog.create({ data: { action: "User Updated", recordName: u.name, detail: changes || "updated", userId: caller.id } });
+        } catch (e) { /* ignore audit failure */ }
         return res.json(u);
       }
 
@@ -58,16 +62,19 @@ module.exports = async (req, res) => {
         if (id === caller.id)
           return res.status(400).json({ error: "You cannot delete your own account" });
         // HARD DELETE — permanently removes from database
+        const target = await prisma.user.findUnique({ where: { id }, select: { name: true } });
         try {
           // First nullify audit log references to avoid FK constraint errors
           await prisma.auditLog.updateMany({ where: { userId: id }, data: { userId: null } });
           await prisma.candidate.updateMany({ where: { createdById: id }, data: { createdById: null } });
           // Now hard delete the user
           await prisma.user.delete({ where: { id } });
+          try { await prisma.auditLog.create({ data: { action: "User Deleted", recordName: target?.name || `#${id}`, detail: "Permanently removed from team", userId: caller.id } }); } catch (e) {}
           return res.json({ message: "User permanently deleted", id });
         } catch (delErr) {
           // Fallback: if hard delete fails (e.g. other FK), just deactivate
           await prisma.user.update({ where: { id }, data: { active: false } });
+          try { await prisma.auditLog.create({ data: { action: "User Deactivated", recordName: target?.name || `#${id}`, detail: "Hard delete failed — deactivated instead", userId: caller.id } }); } catch (e) {}
           return res.json({ message: "User deactivated", id, note: "Hard delete failed, user deactivated instead" });
         }
       }
@@ -98,6 +105,7 @@ module.exports = async (req, res) => {
         data: { name, email: email.toLowerCase().trim(), password: hashed, role: role || "recruiter" },
         select: { id:true, name:true, email:true, role:true, active:true }
       });
+      try { await prisma.auditLog.create({ data: { action: "User Created", recordName: u.name, detail: `${u.email} · Role: ${u.role}`, userId: caller.id } }); } catch (e) { /* ignore audit failure */ }
       return res.json(u);
     }
 
