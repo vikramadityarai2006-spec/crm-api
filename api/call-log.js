@@ -109,7 +109,11 @@ module.exports = async (req, res) => {
 
     // ─── Log a call (and optionally update the flag) ────────────────────────
     if (req.method === "POST") {
-      if (user.role === "viewer") return res.status(403).json({ error: "Viewers cannot log calls" });
+      // Only recruiters make calls. Admins and viewers have oversight access
+      // (read-only) — the Call Log is there for them to see what's going on.
+      if (user.role !== "recruiter") {
+        return res.status(403).json({ error: "Call Log is view-only for your role. Only recruiters can log calls." });
+      }
 
       const { candidateId, flag, notes } = req.body || {};
       const id = parseInt(candidateId, 10);
