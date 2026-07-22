@@ -20,6 +20,7 @@ model User {
   updatedAt DateTime   @updatedAt
   candidates Candidate[] @relation("CreatedBy")
   auditLogs  AuditLog[]
+  callLogs   CallLog[]
 }
 
 model Candidate {
@@ -38,6 +39,7 @@ model Candidate {
   joiningStatus         String?
   ctcPerMonth           Float?
   statusCode            String?
+  callFlag              String?
   notes                 String?
   deleted               Boolean    @default(false)
   createdAt             DateTime   @default(now())
@@ -45,7 +47,9 @@ model Candidate {
   createdById           Int?
   createdBy             User?      @relation("CreatedBy", fields: [createdById], references: [id])
   auditLogs             AuditLog[]
+  callLogs              CallLog[]
 
+  @@index([callFlag])
   @@index([deleted])
   @@index([clientName])
   @@index([ownerName])
@@ -108,4 +112,20 @@ model Company {
 
   @@index([companyName])
   @@index([agreementEndDate])
+}
+
+// One row per call a recruiter makes to a joined candidate. Keeps the full
+// history; the candidate's current flag lives on Candidate.callFlag.
+model CallLog {
+  id          Int       @id @default(autoincrement())
+  candidateId Int
+  candidate   Candidate @relation(fields: [candidateId], references: [id])
+  flag        String?
+  notes       String?
+  calledById  Int?
+  calledBy    User?     @relation(fields: [calledById], references: [id])
+  calledAt    DateTime  @default(now())
+
+  @@index([candidateId])
+  @@index([calledAt])
 }

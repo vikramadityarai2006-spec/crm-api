@@ -85,8 +85,33 @@ const ensureCandidateEmailColumn = async () => {
   }
 };
 
+// Safety net: create the CallLog table and Candidate.callFlag column.
+// Follows the same self-patching approach as the Company table above, so no
+// manual Prisma migration is needed when this deploys.
+const ensureCallLogTable = async () => {
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "Candidate" ADD COLUMN IF NOT EXISTS "callFlag" TEXT`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Candidate_callFlag_idx" ON "Candidate"("callFlag")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "CallLog" (
+        "id" SERIAL PRIMARY KEY,
+        "candidateId" INTEGER NOT NULL,
+        "flag" TEXT,
+        "notes" TEXT,
+        "calledById" INTEGER,
+        "calledAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CallLog_candidateId_idx" ON "CallLog"("candidateId")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "CallLog_calledAt_idx" ON "CallLog"("calledAt")`);
+  } catch (e) {
+    // Already exists, ignore
+  }
+};
+
 // Run on first load
 ensureCompanyTable();
 ensureCandidateEmailColumn();
+ensureCallLogTable();
 
 module.exports = { prisma, SECRET, cors, getUser, requireAuth, toDate };
