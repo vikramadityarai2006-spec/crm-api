@@ -18,13 +18,15 @@ module.exports = async (req, res) => {
     if (user.role === "recruiter") base.ownerName = { equals: user.name, mode: "insensitive" };
 
     // Optional date-range filter (From–To). When provided, the WHOLE dashboard
-    // reflects only candidates ADDED (createdAt) within the selected window.
-    // Empty from/to = all-time (unchanged behaviour).
+    // reflects only candidates whose OFFER MONTH falls within the selected
+    // window. Empty from/to = all-time (unchanged behaviour).
+    // NOTE: candidates with no offerMonth set are excluded once a range is
+    // applied, since they cannot be placed on the offer timeline.
     const { from, to } = req.query;
     const dateFilter = {};
     if (from) { const f = new Date(from); if (!isNaN(f)) dateFilter.gte = f; }
     if (to)   { const t = new Date(to);   if (!isNaN(t)) { t.setHours(23,59,59,999); dateFilter.lte = t; } }
-    if (Object.keys(dateFilter).length) base.createdAt = dateFilter;
+    if (Object.keys(dateFilter).length) base.offerMonth = dateFilter;
 
     const [total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,backout,hold] = await Promise.all([
       prisma.candidate.count({where:base}),
@@ -34,7 +36,7 @@ module.exports = async (req, res) => {
       prisma.candidate.count({where:{...base,actualDOJ:{gte:sm,lte:em}}}),
       prisma.candidate.count({where:{...base,proposedDOJ:{gte:sn,lte:en}}}),
       prisma.candidate.groupBy({by:["joiningStatus"],where:base,_count:{_all:true}}),
-      prisma.candidate.groupBy({by:["clientName"],where:base,_count:{_all:true},orderBy:{_count:{clientName:"desc"}},take:10}),
+      prisma.candidate.groupBy({by:["clientName"],where:base,_count:{_all:true},orderBy:{_count:{clientName:"desc"}}}),
       prisma.candidate.count({where:{...base,joiningStatus:{equals:"Backout",mode:"insensitive"}}}),
       prisma.candidate.count({where:{...base,joiningStatus:{equals:"Hold",mode:"insensitive"}}}),
     ]);
@@ -65,10 +67,11 @@ module.exports = async (req, res) => {
       else if (st === "backout") clientStatusMap[name].backout += count;
       else if (st === "red") clientStatusMap[name].red += count;
     }
+    // Every client is returned (no cap) — the dashboard's client list needs the
+    // full portfolio so each company can be expanded to its own breakdown.
     const clientStatusBreakdown = Object.values(clientStatusMap)
       .map(c => ({ ...c, pipeline: c.total - c.joined - c.offered - c.backout - c.red }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 10);
+      .sort((a, b) => b.total - a.total);
 
     // Conversion funnel: Total candidates -> Offered -> Joined
     const funnel = {
