@@ -1,17 +1,17 @@
 const { prisma, cors, requireAuth, toDate } = require("./_lib");
 
 const build = (b) => ({
-  clientName: b.clientName||b.client||null,
+  clientName: (b.clientName||b.client) ? String(b.clientName||b.client).trim() : null,
   designation: b.designation||null,
   location: b.location||null,
-  candidateName: b.candidateName||b.name||"",
+  candidateName: String(b.candidateName||b.name||"").trim(),
   actualDOJ: toDate(b.actualDOJ),
   offerMonth: toDate(b.offerMonth),
   phone: b.phone?String(b.phone):null,
   email: b.email?String(b.email).trim().toLowerCase():null,
   resignationAcceptance: b.resignationAcceptance||null,
   proposedDOJ: toDate(b.proposedDOJ),
-  ownerName: b.ownerName||b.owner||null,
+  ownerName: (b.ownerName||b.owner) ? String(b.ownerName||b.owner).trim() : null,
   joiningStatus: b.joiningStatus||null,
   ctcPerMonth: (b.ctcPerMonth||b.ctc)?parseFloat(b.ctcPerMonth||b.ctc):null,
   statusCode: b.statusCode||null,

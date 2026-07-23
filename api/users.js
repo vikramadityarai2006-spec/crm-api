@@ -1,6 +1,8 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { PrismaClient } = require("@prisma/client");
+// `ready` resolves once the self-migration (otp* columns etc.) has run.
+const { ready } = require("./_lib");
 
 const prisma = global.prisma || new PrismaClient();
 if (!global.prisma) global.prisma = prisma;
@@ -41,7 +43,16 @@ module.exports = async (req, res) => {
         if (id === caller.id && req.body.active === false)
           return res.status(400).json({ error: "You cannot deactivate your own account" });
         const data = {};
-        if (req.body.name !== undefined) data.name = req.body.name;
+        if (req.body.name !== undefined) data.name = String(req.body.name).trim();
+        if (req.body.email !== undefined) {
+          const newEmail = String(req.body.email).toLowerCase().trim();
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail))
+            return res.status(400).json({ error: "Enter a valid email address" });
+          const clash = await prisma.user.findUnique({ where: { email: newEmail } });
+          if (clash && clash.id !== id)
+            return res.status(400).json({ error: "Another user already uses that email" });
+          data.email = newEmail;
+        }
         if (req.body.role !== undefined) data.role = req.body.role;
         if (req.body.active !== undefined) data.active = req.body.active;
         if (req.body.password) {
@@ -49,12 +60,33 @@ module.exports = async (req, res) => {
             return res.status(400).json({ error: "Password must be at least 6 characters" });
           data.password = await bcrypt.hash(req.body.password, 10);
         }
+        // Access is matched on NAME, so renaming a user without renaming their
+        // candidates' ownerName would silently cut them off from every record
+        // they own. Carry the rename across before updating the account.
+        const before = await prisma.user.findUnique({ where: { id }, select: { name: true } });
+        let carried = 0;
+        if (data.name && before && data.name !== before.name) {
+          try {
+            const moved = await prisma.candidate.updateMany({
+              where: { ownerName: { equals: before.name, mode: "insensitive" } },
+              data: { ownerName: data.name },
+            });
+            carried = moved.count;
+            // Keep the owners dropdown in step with the new name.
+            await prisma.masterData.updateMany({
+              where: { category: "owners", value: before.name },
+              data: { value: data.name },
+            });
+          } catch (e) { /* non-fatal */ }
+        }
+
         const u = await prisma.user.update({
           where: { id }, data,
           select: { id:true, name:true, email:true, role:true, active:true }
         });
         try {
-          const changes = Object.keys(data).map(k => k === "password" ? "password reset" : `${k}=${data[k]}`).join(", ");
+          const changes = Object.keys(data).map(k => k === "password" ? "password reset" : `${k}=${data[k]}`).join(", ")
+            + (carried ? ` · ${carried} candidate(s) re-linked` : "");
           await prisma.auditLog.create({ data: { action: "User Updated", recordName: u.name, detail: changes || "updated", userId: caller.id } });
         } catch (e) { /* ignore audit failure */ }
         return res.json(u);
@@ -109,6 +141,17 @@ module.exports = async (req, res) => {
         data: { name, email: email.toLowerCase().trim(), password: hashed, role: role || "recruiter" },
         select: { id:true, name:true, email:true, role:true, active:true }
       });
+      // Ownership is matched on name, so a new user must also exist in the
+      // "owners" master list — otherwise candidates cannot be assigned to
+      // them and their dashboard stays permanently empty.
+      try {
+        await prisma.masterData.upsert({
+          where: { category_value: { category: "owners", value: u.name } },
+          update: { active: true },
+          create: { category: "owners", value: u.name },
+        });
+      } catch (e) { /* non-fatal */ }
+
       try { await prisma.auditLog.create({ data: { action: "User Created", recordName: u.name, detail: `${u.email} · Role: ${u.role}`, userId: caller.id } }); } catch (e) { /* ignore audit failure */ }
       return res.json(u);
     }

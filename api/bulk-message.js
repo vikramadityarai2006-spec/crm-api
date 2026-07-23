@@ -28,9 +28,15 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: "candidateIds is required" });
     if (!message) return res.status(400).json({ error: "message is required" });
 
-    const candidates = await prisma.candidate.findMany({
-      where: { id: { in: candidateIds.map(Number) }, deleted: false },
-    });
+    // SECURITY: scope by ownership. Without this a recruiter could post any
+    // candidate IDs and harvest names/phones/emails belonging to other
+    // recruiters (the WhatsApp queue response echoes contact details back).
+    const scope = { id: { in: candidateIds.map(Number) }, deleted: false };
+    if (user.role === "recruiter") scope.ownerName = { equals: user.name, mode: "insensitive" };
+
+    const candidates = await prisma.candidate.findMany({ where: scope });
+    if (candidates.length === 0)
+      return res.status(404).json({ error: "No matching candidates you have access to." });
 
     // ─── EMAIL ────────────────────────────────────────────────────────────
     if (channel === "email") {
