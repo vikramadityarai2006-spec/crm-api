@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
     const SECTIONS = {
       joined:      { where: { joiningStatus: { equals: "Joined",  mode: "insensitive" } }, dateField: "actualDOJ" },
       offered:     { where: { joiningStatus: { equals: "Offered", mode: "insensitive" } }, dateField: "offerMonth" },
-      resignation: { where: { resignationAcceptance: { not: null } },                      dateField: "resignationDate" },
+      resignation: { where: { resignationAcceptance: { not: null } },                      dateField: "proposedDOJ" },
     };
     const section = SECTIONS[req.query.section] ? req.query.section : "joined";
     Object.assign(base, SECTIONS[section].where);
@@ -96,7 +96,7 @@ module.exports = async (req, res) => {
           id: true, candidateName: true, clientName: true, designation: true,
           phone: true, email: true, actualDOJ: true, ownerName: true,
           callFlag: true, ctcPerMonth: true, offerMonth: true, proposedDOJ: true,
-          joiningStatus: true, resignationAcceptance: true, resignationDate: true,
+          joiningStatus: true, resignationAcceptance: true,
         },
       });
 
