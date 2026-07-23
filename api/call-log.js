@@ -1,4 +1,4 @@
-const { prisma, cors, requireAuth } = require("./_lib");
+const { prisma, cors, requireAuth, ready } = require("./_lib");
 
 // Call Log — recruiters call JOINED candidates, record the outcome, and set a
 // single tracking flag on the candidate:
@@ -18,6 +18,16 @@ module.exports = async (req, res) => {
   if (!user) return;
 
   try {
+    // Make sure the CallLog table/column exist before the first query touches
+    // them (the create runs on cold start and would otherwise be a race).
+    await ready;
+
+    // Guard against a stale Prisma client: if schema.prisma was not deployed,
+    // prisma.callLog is undefined and every query below would throw a vague
+    // "cannot read properties of undefined" error.
+    if (!prisma.callLog) {
+      return res.status(500).json({ error: "Call Log model missing. Deploy the updated prisma/schema.prisma and redeploy the API." });
+    }
     // Recruiters only ever see/act on candidates they own.
     // ownScope = what this user is allowed to touch at all (never section-dependent).
     const ownScope = { deleted: false };

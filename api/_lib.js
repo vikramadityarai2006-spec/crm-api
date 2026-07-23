@@ -109,9 +109,12 @@ const ensureCallLogTable = async () => {
   }
 };
 
-// Run on first load
-ensureCompanyTable();
-ensureCandidateEmailColumn();
-ensureCallLogTable();
+// Run on first load. `ready` is exported so endpoints that depend on a
+// freshly-created table can await it instead of racing the cold start.
+const ready = Promise.all([
+  ensureCompanyTable(),
+  ensureCandidateEmailColumn(),
+  ensureCallLogTable(),
+]).catch(() => {});
 
-module.exports = { prisma, SECRET, cors, getUser, requireAuth, toDate };
+module.exports = { prisma, SECRET, cors, getUser, requireAuth, toDate, ready};
