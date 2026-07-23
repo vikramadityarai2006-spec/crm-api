@@ -40,27 +40,42 @@ module.exports = async (req, res) => {
           error: "Email is not configured yet. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and SMTP_FROM in the environment to enable bulk email.",
         });
       }
-      // Shared company-SMTP transport (see api/_mailer.js).
-      const { getTransporter, fromAddress } = require("./_mailer");
-      const transporter = getTransporter();
+      // Shared company-SMTP transport (see api/_mailer.js). Verify the
+      // connection FIRST so a bad host/port/password returns a clear JSON
+      // error instead of hanging until the function is killed mid-request.
+      const { verifyTransport, fromAddress, explainMailError } = require("./_mailer");
+      const check = await verifyTransport();
+      if (!check.ok) return res.status(400).json({ error: check.error });
+      const transporter = check.transporter;
 
       const results = { sent: [], failed: [] };
+      const targets = [];
       for (const c of candidates) {
-        if (!c.email) { results.failed.push({ id: c.id, name: c.candidateName, reason: "No email on file" }); continue; }
-        try {
-          await transporter.sendMail({
-            from: fromAddress(),
-            to: c.email,
-            subject: applyTemplate(subject || "", c) || "Update from Ample Leap",
-            text: applyTemplate(message, c),
-            attachments: attachment
-              ? [{ filename: attachment.filename, content: Buffer.from(attachment.base64, "base64"), contentType: attachment.contentType }]
-              : [],
-          });
-          results.sent.push({ id: c.id, name: c.candidateName, email: c.email });
-        } catch (err) {
-          results.failed.push({ id: c.id, name: c.candidateName, reason: err.message });
-        }
+        if (!c.email) results.failed.push({ id: c.id, name: c.candidateName, reason: "No email on file" });
+        else targets.push(c);
+      }
+
+      // Send in small parallel batches. The old sequential loop could exceed
+      // the function time limit on larger lists, which produced a crash page.
+      const BATCH = 5;
+      for (let i = 0; i < targets.length; i += BATCH) {
+        const slice = targets.slice(i, i + BATCH);
+        await Promise.all(slice.map(async (c) => {
+          try {
+            await transporter.sendMail({
+              from: fromAddress(),
+              to: c.email,
+              subject: applyTemplate(subject || "", c) || "Update from Ample Leap",
+              text: applyTemplate(message, c),
+              attachments: attachment
+                ? [{ filename: attachment.filename, content: Buffer.from(attachment.base64, "base64"), contentType: attachment.contentType }]
+                : [],
+            });
+            results.sent.push({ id: c.id, name: c.candidateName, email: c.email });
+          } catch (err) {
+            results.failed.push({ id: c.id, name: c.candidateName, reason: explainMailError(err) });
+          }
+        }));
       }
 
       await prisma.auditLog.create({

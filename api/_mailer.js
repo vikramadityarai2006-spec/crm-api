@@ -23,7 +23,38 @@ const getTransporter = () => {
     port: parseInt(process.env.SMTP_PORT || "587"),
     secure: process.env.SMTP_SECURE === "true",
     auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    // Nodemailer defaults wait minutes. On a serverless function that just
+    // burns the invocation limit and returns an HTML crash page instead of a
+    // usable error, so fail fast and report something actionable.
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 12000,
   });
+};
+
+// Turns raw SMTP failures into guidance that points at the actual setting.
+const explainMailError = (err) => {
+  const code = (err && err.code) || "";
+  const msg  = (err && err.message) || "Unknown mail error";
+  if (code === "EAUTH" || /535|auth/i.test(msg))
+    return "SMTP login rejected. Check SMTP_USER and SMTP_PASS — the username is usually the full email address.";
+  if (code === "ETIMEDOUT" || code === "ECONNECTION" || code === "ECONNREFUSED" || /timeout/i.test(msg))
+    return "Could not reach the mail server. Check SMTP_HOST and SMTP_PORT, and that your provider allows connections from outside your office network.";
+  if (code === "ESOCKET" || /certificate|SSL|wrong version/i.test(msg))
+    return "Secure-connection mismatch. Use SMTP_SECURE=true with port 465, or SMTP_SECURE=false with port 587.";
+  return `Mail server error: ${msg}`;
+};
+
+// Confirms the server is reachable and the credentials work, before any send.
+const verifyTransport = async () => {
+  const transporter = getTransporter();
+  if (!transporter) return { ok: false, error: "Email is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS and SMTP_FROM." };
+  try {
+    await transporter.verify();
+    return { ok: true, transporter };
+  } catch (err) {
+    return { ok: false, error: explainMailError(err) };
+  }
 };
 
 const fromAddress = () => process.env.SMTP_FROM || process.env.SMTP_USER;
@@ -61,4 +92,4 @@ const sendOtpEmail = async (to, name, code, minutes) => {
   });
 };
 
-module.exports = { isMailConfigured, getTransporter, fromAddress, sendOtpEmail };
+module.exports = { isMailConfigured, getTransporter, fromAddress, sendOtpEmail, verifyTransport, explainMailError };
