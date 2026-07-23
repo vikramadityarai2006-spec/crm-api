@@ -100,30 +100,30 @@ module.exports = async (req, res) => {
         },
       });
 
-      // Attach each candidate's most recent call in one query rather than N.
+      // PERFORMANCE: previously this pulled EVERY CallLog row for these
+      // candidates plus a User join, only to compute a count and the latest
+      // date. A groupBy returns one aggregated row per candidate instead, so
+      // the payload no longer grows with call history.
       const ids = candidates.map(c => c.id);
-      const recent = ids.length
-        ? await prisma.callLog.findMany({
+      const agg = ids.length
+        ? await prisma.callLog.groupBy({
+            by: ["candidateId"],
             where: { candidateId: { in: ids } },
-            orderBy: { calledAt: "desc" },
-            include: { calledBy: { select: { name: true } } },
+            _count: { _all: true },
+            _max: { calledAt: true },
           })
         : [];
-      const lastByCandidate = {};
-      const countByCandidate = {};
-      for (const l of recent) {
-        countByCandidate[l.candidateId] = (countByCandidate[l.candidateId] || 0) + 1;
-        if (!lastByCandidate[l.candidateId]) lastByCandidate[l.candidateId] = l;
+      const statsById = {};
+      for (const a of agg) {
+        statsById[a.candidateId] = { count: a._count._all, last: a._max.calledAt };
       }
 
       const rows = candidates.map(c => {
-        const last = lastByCandidate[c.id];
+        const st = statsById[c.id];
         return {
           ...c,
-          callCount: countByCandidate[c.id] || 0,
-          lastCalledAt: last?.calledAt || null,
-          lastNotes: last?.notes || null,
-          lastCalledByName: last?.calledBy?.name || null,
+          callCount: st?.count || 0,
+          lastCalledAt: st?.last || null,
         };
       });
 

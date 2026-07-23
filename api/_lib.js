@@ -109,12 +109,36 @@ const ensureCallLogTable = async () => {
   }
 };
 
-// Run on first load. `ready` is exported so endpoints that depend on a
-// freshly-created table can await it instead of racing the cold start.
-const ready = Promise.all([
-  ensureCompanyTable(),
-  ensureCandidateEmailColumn(),
-  ensureCallLogTable(),
-]).catch(() => {});
+// PERFORMANCE: these helpers issue 11 DDL statements. Running them on every
+// cold start cost a round-trip each, even though the schema has long since
+// settled. One cheap catalog lookup now decides whether any of it is needed,
+// so a warm schema costs a single fast query instead of 11.
+const schemaIsCurrent = async () => {
+  try {
+    const [r] = await prisma.$queryRawUnsafe(`
+      SELECT
+        to_regclass('"Company"') IS NOT NULL AS has_company,
+        to_regclass('"CallLog"') IS NOT NULL AS has_calllog,
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'Candidate' AND column_name = 'email')    AS has_email,
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'Candidate' AND column_name = 'callFlag') AS has_flag
+    `);
+    return Boolean(r && r.has_company && r.has_calllog && r.has_email && r.has_flag);
+  } catch (e) {
+    return false; // On any doubt, fall through and run the safe DDL.
+  }
+};
+
+const ready = (async () => {
+  try {
+    if (await schemaIsCurrent()) return;
+    await Promise.all([
+      ensureCompanyTable(),
+      ensureCandidateEmailColumn(),
+      ensureCallLogTable(),
+    ]);
+  } catch (e) { /* never block request handling on schema patching */ }
+})();
 
 module.exports = { prisma, SECRET, cors, getUser, requireAuth, toDate, ready};

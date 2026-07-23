@@ -28,31 +28,62 @@ module.exports = async (req, res) => {
     if (to)   { const t = new Date(to);   if (!isNaN(t)) { t.setHours(23,59,59,999); dateFilter.lte = t; } }
     if (Object.keys(dateFilter).length) base.offerMonth = dateFilter;
 
-    const [total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,backout,hold] = await Promise.all([
-      prisma.candidate.count({where:base}),
-      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Joined",mode:"insensitive"}}}),
-      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Offered",mode:"insensitive"}}}),
-      prisma.candidate.count({where:{...base,resignationAcceptance:{equals:"Pending",mode:"insensitive"}}}),
-      prisma.candidate.count({where:{...base,actualDOJ:{gte:sm,lte:em}}}),
-      prisma.candidate.count({where:{...base,proposedDOJ:{gte:sn,lte:en}}}),
-      prisma.candidate.groupBy({by:["joiningStatus"],where:base,_count:{_all:true}}),
-      prisma.candidate.groupBy({by:["clientName"],where:base,_count:{_all:true},orderBy:{_count:{clientName:"desc"}}}),
-      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Backout",mode:"insensitive"}}}),
-      prisma.candidate.count({where:{...base,joiningStatus:{equals:"Hold",mode:"insensitive"}}}),
+    // PERFORMANCE: this endpoint used to fire 17 queries across 3 sequential
+    // waves. Several were redundant — the joined/offered/backout/hold counts
+    // repeat what the joiningStatus groupBy already returns, and clientGroups
+    // repeats the client breakdown. Everything below is now derived from 6
+    // queries issued in a SINGLE parallel wave.
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+    const [total, resPending, nextMonth, statusGroups, clientStatusRaw, dojRows] = await Promise.all([
+      prisma.candidate.count({ where: base }),
+      prisma.candidate.count({ where: { ...base, resignationAcceptance: { equals: "Pending", mode: "insensitive" } } }),
+      prisma.candidate.count({ where: { ...base, proposedDOJ: { gte: sn, lte: en } } }),
+      prisma.candidate.groupBy({ by: ["joiningStatus"], where: base, _count: { _all: true } }),
+      prisma.candidate.groupBy({
+        by: ["clientName", "joiningStatus"],
+        where: { ...base, clientName: { not: null } },
+        _count: { _all: true },
+      }),
+      // One row-set of joining dates covers both the 6-month chart and the
+      // "joining this month" figure, replacing 7 separate count queries.
+      prisma.candidate.findMany({
+        where: { ...base, actualDOJ: { gte: sixMonthsAgo, lte: em } },
+        select: { actualDOJ: true },
+      }),
     ]);
 
-    // The candidate-database card now shows the in-range total (the old
-    // 3M/6M/12M presets were replaced by the From–To picker in the header).
+    // ── Status counts derived from the groupBy (no extra queries) ──────────
+    const statusTally = {};
+    for (const g of statusGroups) {
+      statusTally[(g.joiningStatus || "").trim().toLowerCase()] = (statusTally[(g.joiningStatus || "").trim().toLowerCase()] || 0) + g._count._all;
+    }
+    const joined  = statusTally["joined"]  || 0;
+    const offered = statusTally["offered"] || 0;
+    const backout = statusTally["backout"] || 0;
+    const hold    = statusTally["hold"]    || 0;
+
+    // ── Monthly volume + this-month count, bucketed in memory ─────────────
+    const monthBuckets = Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+      return { key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleString("en-IN", { month: "short", year: "2-digit" }), value: 0 };
+    });
+    const bucketIndex = Object.fromEntries(monthBuckets.map((b, i) => [b.key, i]));
+    let thisMonth = 0;
+    const thisKey = `${now.getFullYear()}-${now.getMonth()}`;
+    for (const r of dojRows) {
+      if (!r.actualDOJ) continue;
+      const d = new Date(r.actualDOJ);
+      const k = `${d.getFullYear()}-${d.getMonth()}`;
+      const idx = bucketIndex[k];
+      if (idx !== undefined) monthBuckets[idx].value++;
+      if (k === thisKey) thisMonth++;
+    }
+    const months = monthBuckets.map(({ label, value }) => ({ label, value }));
+
     const last3 = total, last6 = total, last12 = total;
 
-    // Per-company status breakdown (Pipeline / Red / Backout / Joined / Offered),
-    // synced live from the same candidate data as everything else on the
-    // dashboard. Grouped by client + joiningStatus, then pivoted below.
-    const clientStatusRaw = await prisma.candidate.groupBy({
-      by: ["clientName", "joiningStatus"],
-      where: { ...base, clientName: { not: null } },
-      _count: { _all: true },
-    });
+    // ── Per-company breakdown, pivoted from the single groupBy ────────────
     const clientStatusMap = {};
     for (const g of clientStatusRaw) {
       const name = g.clientName;
@@ -67,28 +98,18 @@ module.exports = async (req, res) => {
       else if (st === "backout") clientStatusMap[name].backout += count;
       else if (st === "red") clientStatusMap[name].red += count;
     }
-    // Every client is returned (no cap) — the dashboard's client list needs the
-    // full portfolio so each company can be expanded to its own breakdown.
     const clientStatusBreakdown = Object.values(clientStatusMap)
       .map(c => ({ ...c, pipeline: c.total - c.joined - c.offered - c.backout - c.red }))
       .sort((a, b) => b.total - a.total);
 
-    // Conversion funnel: Total candidates -> Offered -> Joined
+    // clientGroups kept for backwards compatibility — derived, not queried.
+    const clientGroups = clientStatusBreakdown.map(c => ({ clientName: c.clientName, _count: { _all: c.total } }));
+
     const funnel = {
-      total,
-      offered,
-      joined,
-      backout,
-      hold,
+      total, offered, joined, backout, hold,
       conversionRate: offered > 0 ? Math.round((joined / offered) * 100) : 0,
       offerRate: total > 0 ? Math.round((offered / total) * 100) : 0,
     };
-
-    const months = await Promise.all(Array.from({length:6},(_,i)=>{
-      const d=new Date(); d.setMonth(d.getMonth()-(5-i));
-      const s=new Date(d.getFullYear(),d.getMonth(),1), e=new Date(d.getFullYear(),d.getMonth()+1,0);
-      return prisma.candidate.count({where:{...base,actualDOJ:{gte:s,lte:e}}}).then(v=>({label:s.toLocaleString("en-IN",{month:"short",year:"2-digit"}),value:v}));
-    }));
 
     res.json({total,joined,offered,resPending,thisMonth,nextMonth,statusGroups,clientGroups,months,funnel,
       candidatesByPeriod: { last3, last6, last12, total },
