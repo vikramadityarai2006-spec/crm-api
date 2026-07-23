@@ -80,10 +80,12 @@ module.exports = async (req, res) => {
       }
     }
 
-    // ── List all users — only ACTIVE users ───────────────────────────
+    // ── List all users (active and disabled) ─────────────────────────
     if (req.method === "GET") {
       const users = await prisma.user.findMany({
-        where: { active: true }, // Only show active users
+        // Return inactive users too — the admin UI has an "Enable Account"
+        // action, and filtering them out here made disabled users permanently
+        // invisible and impossible to re-enable.
         select: { id:true, name:true, email:true, role:true, active:true, createdAt:true },
         orderBy: { createdAt: "asc" }
       });
