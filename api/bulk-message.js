@@ -34,19 +34,12 @@ module.exports = async (req, res) => {
 
     // ─── EMAIL ────────────────────────────────────────────────────────────
     if (channel === "email") {
-      const host = process.env.SMTP_HOST;
-      if (!host) {
-        return res.status(400).json({
-          error: "Email is not configured yet. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and SMTP_FROM in the environment to enable bulk email.",
-        });
-      }
       // Shared company-SMTP transport (see api/_mailer.js). Verify the
       // connection FIRST so a bad host/port/password returns a clear JSON
       // error instead of hanging until the function is killed mid-request.
-      const { verifyTransport, fromAddress, explainMailError } = require("./_mailer");
+      const { verifyTransport, sendMail, explainMailError } = require("./_mailer");
       const check = await verifyTransport();
       if (!check.ok) return res.status(400).json({ error: check.error });
-      const transporter = check.transporter;
 
       const results = { sent: [], failed: [] };
       const targets = [];
@@ -62,13 +55,12 @@ module.exports = async (req, res) => {
         const slice = targets.slice(i, i + BATCH);
         await Promise.all(slice.map(async (c) => {
           try {
-            await transporter.sendMail({
-              from: fromAddress(),
+            await sendMail({
               to: c.email,
               subject: applyTemplate(subject || "", c) || "Update from Ample Leap",
               text: applyTemplate(message, c),
               attachments: attachment
-                ? [{ filename: attachment.filename, content: Buffer.from(attachment.base64, "base64"), contentType: attachment.contentType }]
+                ? [{ filename: attachment.filename, base64: attachment.base64, contentType: attachment.contentType }]
                 : [],
             });
             results.sent.push({ id: c.id, name: c.candidateName, email: c.email });
