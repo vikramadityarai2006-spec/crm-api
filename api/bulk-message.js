@@ -40,20 +40,16 @@ module.exports = async (req, res) => {
           error: "Email is not configured yet. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and SMTP_FROM in the environment to enable bulk email.",
         });
       }
-      const nodemailer = require("nodemailer");
-      const transporter = nodemailer.createTransport({
-        host,
-        port: parseInt(process.env.SMTP_PORT || "587"),
-        secure: process.env.SMTP_SECURE === "true",
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      });
+      // Shared company-SMTP transport (see api/_mailer.js).
+      const { getTransporter, fromAddress } = require("./_mailer");
+      const transporter = getTransporter();
 
       const results = { sent: [], failed: [] };
       for (const c of candidates) {
         if (!c.email) { results.failed.push({ id: c.id, name: c.candidateName, reason: "No email on file" }); continue; }
         try {
           await transporter.sendMail({
-            from: process.env.SMTP_FROM || process.env.SMTP_USER,
+            from: fromAddress(),
             to: c.email,
             subject: applyTemplate(subject || "", c) || "Update from Ample Leap",
             text: applyTemplate(message, c),

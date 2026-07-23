@@ -8,6 +8,7 @@ const build = (b) => ({
   actualDOJ: toDate(b.actualDOJ),
   offerMonth: toDate(b.offerMonth),
   phone: b.phone?String(b.phone):null,
+  email: b.email?String(b.email).trim().toLowerCase():null,
   resignationAcceptance: b.resignationAcceptance||null,
   proposedDOJ: toDate(b.proposedDOJ),
   ownerName: b.ownerName||b.owner||null,

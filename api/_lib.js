@@ -88,6 +88,15 @@ const ensureCandidateEmailColumn = async () => {
 // Safety net: create the CallLog table and Candidate.callFlag column.
 // Follows the same self-patching approach as the Company table above, so no
 // manual Prisma migration is needed when this deploys.
+// Two-factor columns on User (see api/auth.js). Self-patching like the rest.
+const ensureOtpColumns = async () => {
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "otpHash" TEXT`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "otpExpires" TIMESTAMP(3)`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "otpAttempts" INTEGER NOT NULL DEFAULT 0`);
+  } catch (e) { /* already exists */ }
+};
+
 const ensureCallLogTable = async () => {
   try {
     await prisma.$executeRawUnsafe(`ALTER TABLE "Candidate" ADD COLUMN IF NOT EXISTS "callFlag" TEXT`);
@@ -122,9 +131,11 @@ const schemaIsCurrent = async () => {
         EXISTS(SELECT 1 FROM information_schema.columns
                WHERE table_name = 'Candidate' AND column_name = 'email')    AS has_email,
         EXISTS(SELECT 1 FROM information_schema.columns
-               WHERE table_name = 'Candidate' AND column_name = 'callFlag') AS has_flag
+               WHERE table_name = 'Candidate' AND column_name = 'callFlag') AS has_flag,
+        EXISTS(SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'User' AND column_name = 'otpHash')       AS has_otp
     `);
-    return Boolean(r && r.has_company && r.has_calllog && r.has_email && r.has_flag);
+    return Boolean(r && r.has_company && r.has_calllog && r.has_email && r.has_flag && r.has_otp);
   } catch (e) {
     return false; // On any doubt, fall through and run the safe DDL.
   }
@@ -137,6 +148,7 @@ const ready = (async () => {
       ensureCompanyTable(),
       ensureCandidateEmailColumn(),
       ensureCallLogTable(),
+      ensureOtpColumns(),
     ]);
   } catch (e) { /* never block request handling on schema patching */ }
 })();

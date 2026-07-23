@@ -16,6 +16,9 @@ model User {
   password  String
   role      String     @default("viewer")
   active    Boolean    @default(true)
+  otpHash     String?
+  otpExpires  DateTime?
+  otpAttempts Int       @default(0)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   candidates Candidate[] @relation("CreatedBy")
