@@ -12,9 +12,14 @@ if (!SECRET) {
 const SESSION_HOURS = parseInt(process.env.SESSION_HOURS || "8");
 
 // ─── Two-factor (OTP) settings ────────────────────────────────────────────
-// Recruiters must confirm a one-time code emailed to them before a session is
-// issued. Admins and viewers sign in with password only.
-const OTP_ROLES       = ["recruiter"];
+// DISABLED by default — every role signs in with password only.
+//
+// To switch it back on, set the OTP_ROLES environment variable in Vercel to a
+// comma-separated list of roles, e.g.  OTP_ROLES=recruiter
+// Requires a working email provider (see api/_mailer.js), because a role
+// listed here cannot sign in while email delivery is failing.
+const OTP_ROLES = (process.env.OTP_ROLES || "")
+  .split(",").map(r => r.trim().toLowerCase()).filter(Boolean);
 const OTP_MINUTES     = 10;
 const OTP_MAX_ATTEMPTS = 5;
 const { sendOtpEmail } = require("./_mailer");
@@ -22,7 +27,7 @@ const { sendOtpEmail } = require("./_mailer");
 // its `ready` promise stops the first login after a deploy racing that patch.
 const { ready: schemaReady } = require("./_lib");
 
-const needsOtp = (user) => OTP_ROLES.includes(user.role);
+const needsOtp = (user) => OTP_ROLES.includes(String(user.role || "").toLowerCase());
 const makeOtp  = () => String(Math.floor(100000 + Math.random() * 900000));
 
 const issueSession = async (user) => {
