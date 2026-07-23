@@ -44,6 +44,10 @@ const issueSession = async (user) => {
 };
 
 module.exports = async (req, res) => {
+  // Wait for the self-migration that adds the otp* columns BEFORE touching the
+  // User table. Prisma selects all columns, so a findUnique would otherwise
+  // throw "column User.otpHash does not exist" on the first request after deploy.
+  await schemaReady;
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
@@ -54,7 +58,6 @@ module.exports = async (req, res) => {
     try {
       const { email, otp } = req.body;
       if (!email || !otp) return res.status(400).json({ error: "Email and code required" });
-      await schemaReady;
 
       const user = await prisma.user.findUnique({ where: { email: String(email).toLowerCase().trim() } });
       if (!user || !user.active) return res.status(401).json({ error: "Invalid credentials" });
@@ -108,7 +111,6 @@ module.exports = async (req, res) => {
 
       // Password is correct. Recruiters must still clear the emailed code.
       if (needsOtp(user)) {
-        await schemaReady;
         if (!user.email) {
           return res.status(403).json({ error: "No email address on your account. Ask your administrator to add one." });
         }

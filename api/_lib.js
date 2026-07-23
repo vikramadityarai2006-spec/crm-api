@@ -94,7 +94,11 @@ const ensureOtpColumns = async () => {
     await prisma.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "otpHash" TEXT`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "otpExpires" TIMESTAMP(3)`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "otpAttempts" INTEGER NOT NULL DEFAULT 0`);
-  } catch (e) { /* already exists */ }
+  } catch (e) {
+    // Log rather than swallow: if this fails, every login breaks with a
+    // confusing "column User.otpHash does not exist" and no other clue.
+    console.error("ensureOtpColumns failed:", e.message);
+  }
 };
 
 const ensureCallLogTable = async () => {

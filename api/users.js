@@ -23,6 +23,8 @@ const getUser = (req) => {
 };
 
 module.exports = async (req, res) => {
+  // Some queries here select every User column, so wait for the self-migration.
+  await ready;
   cors(res);
   if (req.method === "OPTIONS") return res.status(200).end();
 
