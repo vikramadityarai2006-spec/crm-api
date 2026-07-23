@@ -21,6 +21,10 @@ const SESSION_HOURS = parseInt(process.env.SESSION_HOURS || "8");
 const OTP_ROLES = (process.env.OTP_ROLES || "")
   .split(",").map(r => r.trim().toLowerCase()).filter(Boolean);
 const OTP_MINUTES     = 10;
+// Where the code is delivered. Unset = each user gets their code at their own
+// login address. Set (e.g. OTP_TO=info@ampleleap.com) = every code goes to that
+// one mailbox instead, which turns OTP into a central approval gate.
+const OTP_TO = (process.env.OTP_TO || "").trim();
 const OTP_MAX_ATTEMPTS = 5;
 const { sendOtpEmail } = require("./_mailer");
 // _lib performs the self-migration that adds the otp* columns to User. Awaiting
@@ -116,7 +120,9 @@ module.exports = async (req, res) => {
 
       // Password is correct. Recruiters must still clear the emailed code.
       if (needsOtp(user)) {
-        if (!user.email) {
+        // With a shared OTP mailbox the user does not need an address of their own.
+        const otpRecipient = OTP_TO || user.email;
+        if (!otpRecipient) {
           return res.status(403).json({ error: "No email address on your account. Ask your administrator to add one." });
         }
         const code = makeOtp();
@@ -124,7 +130,14 @@ module.exports = async (req, res) => {
         const otpExpires = new Date(Date.now() + OTP_MINUTES * 60 * 1000);
 
         try {
-          await sendOtpEmail(user.email, user.name, code, OTP_MINUTES);
+          await sendOtpEmail({
+            to: otpRecipient,
+            name: user.name,
+            loginEmail: user.email,
+            code,
+            minutes: OTP_MINUTES,
+            shared: Boolean(OTP_TO),
+          });
         } catch (mailErr) {
           // Delivery failed — refuse the login rather than bypass verification.
           try {
@@ -147,15 +160,18 @@ module.exports = async (req, res) => {
         });
         try {
           await prisma.auditLog.create({
-            data: { action: "Login OTP Sent", recordName: user.name, detail: user.email, userId: user.id }
+            data: { action: "Login OTP Sent", recordName: user.name, detail: `Code sent to ${otpRecipient}`, userId: user.id }
           });
         } catch (e) {}
 
         return res.json({
           otpRequired: true,
           email: user.email,
+          sentToShared: Boolean(OTP_TO),
           expiresInMinutes: OTP_MINUTES,
-          message: "Verification code sent to your email."
+          message: OTP_TO
+            ? "Verification code sent to the company inbox."
+            : "Verification code sent to your email."
         });
       }
 

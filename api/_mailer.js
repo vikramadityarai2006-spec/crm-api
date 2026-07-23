@@ -161,27 +161,34 @@ const verifyTransport = async () => {
   return { ok: true, provider };
 };
 
-// Login verification code for recruiters. Throws on failure so the caller can
-// refuse the login rather than let someone in unverified.
-const sendOtpEmail = async (to, name, code, minutes) => {
+// Login verification code.
+//
+// `to` may be a shared mailbox (see OTP_TO in api/auth.js), so the message
+// always states WHICH account the code belongs to — otherwise a mailbox
+// receiving several codes at once is impossible to sort out.
+const sendOtpEmail = async ({ to, name, loginEmail, code, minutes, shared }) => {
+  const who = `${name}${loginEmail ? ` (${loginEmail})` : ""}`;
   await sendMail({
     to,
-    subject: `Your login code: ${code}`,
+    subject: shared ? `Login code ${code} — for ${who}` : `Your login code: ${code}`,
     text:
-      `Hi ${name},\n\nYour verification code is ${code}\n\n` +
-      `It expires in ${minutes} minutes and can be used once.\n\n` +
-      `If you did not try to sign in, ignore this email and tell your administrator.\n`,
+      `Login verification code\n\n` +
+      `Account: ${who}\n` +
+      `Code: ${code}\n\n` +
+      `Expires in ${minutes} minutes and can be used once.\n\n` +
+      `If this sign-in was not expected, do not share the code.\n`,
     html:
       `<div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:auto;padding:24px">
          <p style="color:#5f6368;font-size:13px;margin:0 0 4px">Ample Leap CRM</p>
-         <h2 style="color:#001c3e;margin:0 0 16px">Your login code</h2>
-         <p style="color:#3c4043;font-size:14px">Hi ${name},</p>
+         <h2 style="color:#001c3e;margin:0 0 16px">Login verification code</h2>
+         <p style="color:#3c4043;font-size:14px;margin:0 0 4px">Account requesting sign-in:</p>
+         <p style="color:#001c3e;font-size:15px;font-weight:700;margin:0 0 16px">${who}</p>
          <div style="background:#f1f3f4;border-radius:12px;padding:20px;text-align:center;margin:20px 0">
            <span style="font-size:34px;font-weight:800;letter-spacing:8px;color:#001c3e">${code}</span>
          </div>
          <p style="color:#5f6368;font-size:13px">Expires in ${minutes} minutes and can be used once.</p>
          <p style="color:#5f6368;font-size:12px;border-top:1px solid #e0e0e0;padding-top:12px">
-           If you did not try to sign in, ignore this email and tell your administrator.
+           If this sign-in was not expected, do not share this code.
          </p>
        </div>`,
   });
