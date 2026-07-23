@@ -19,8 +19,28 @@ module.exports = async (req, res) => {
 
   try {
     // Recruiters only ever see/act on candidates they own.
-    const base = { deleted: false, joiningStatus: { equals: "Joined", mode: "insensitive" } };
-    if (user.role === "recruiter") base.ownerName = { equals: user.name, mode: "insensitive" };
+    // ownScope = what this user is allowed to touch at all (never section-dependent).
+    const ownScope = { deleted: false };
+    if (user.role === "recruiter") ownScope.ownerName = { equals: user.name, mode: "insensitive" };
+    // base = ownScope narrowed to the section + date range currently being viewed.
+    const base = { ...ownScope };
+
+    // Section decides WHICH candidates appear and which date the calendar
+    // filters on, so the range always means something for what is on screen.
+    const SECTIONS = {
+      joined:      { where: { joiningStatus: { equals: "Joined",  mode: "insensitive" } }, dateField: "actualDOJ" },
+      offered:     { where: { joiningStatus: { equals: "Offered", mode: "insensitive" } }, dateField: "offerMonth" },
+      resignation: { where: { resignationAcceptance: { not: null } },                      dateField: "resignationDate" },
+    };
+    const section = SECTIONS[req.query.section] ? req.query.section : "joined";
+    Object.assign(base, SECTIONS[section].where);
+
+    // Optional From-To calendar filter on the section's own date field.
+    const { from, to } = req.query;
+    const df = {};
+    if (from) { const f = new Date(from); if (!isNaN(f)) df.gte = f; }
+    if (to)   { const t = new Date(to);   if (!isNaN(t)) { t.setHours(23,59,59,999); df.lte = t; } }
+    if (Object.keys(df).length) base[SECTIONS[section].dateField] = df;
 
     // ─── History for one candidate ─────────────────────────────────────────
     if (req.method === "GET" && req.query.candidateId) {
@@ -28,7 +48,7 @@ module.exports = async (req, res) => {
       if (!candidateId) return res.status(400).json({ error: "Invalid candidateId" });
 
       // Ownership check — a recruiter must not read another owner's history.
-      const cand = await prisma.candidate.findFirst({ where: { ...base, id: candidateId } });
+      const cand = await prisma.candidate.findFirst({ where: { ...ownScope, id: candidateId } });
       if (!cand) return res.status(404).json({ error: "Candidate not found or not accessible" });
 
       const logs = await prisma.callLog.findMany({
@@ -61,11 +81,12 @@ module.exports = async (req, res) => {
 
       const candidates = await prisma.candidate.findMany({
         where,
-        orderBy: [{ actualDOJ: "desc" }, { candidateName: "asc" }],
+        orderBy: [{ [SECTIONS[section].dateField]: "desc" }, { candidateName: "asc" }],
         select: {
           id: true, candidateName: true, clientName: true, designation: true,
           phone: true, email: true, actualDOJ: true, ownerName: true,
-          callFlag: true, ctcPerMonth: true,
+          callFlag: true, ctcPerMonth: true, offerMonth: true, proposedDOJ: true,
+          joiningStatus: true, resignationAcceptance: true, resignationDate: true,
         },
       });
 
@@ -104,7 +125,7 @@ module.exports = async (req, res) => {
         none: rows.filter(r => !r.callFlag).length,
       };
 
-      return res.json({ rows, counts });
+      return res.json({ rows, counts, section });
     }
 
     // ─── Log a call (and optionally update the flag) ────────────────────────
@@ -123,7 +144,7 @@ module.exports = async (req, res) => {
         return res.status(400).json({ error: "Add a note or select a flag" });
       }
 
-      const cand = await prisma.candidate.findFirst({ where: { ...base, id } });
+      const cand = await prisma.candidate.findFirst({ where: { ...ownScope, id } });
       if (!cand) return res.status(404).json({ error: "Candidate not found or not accessible" });
 
       const log = await prisma.callLog.create({
